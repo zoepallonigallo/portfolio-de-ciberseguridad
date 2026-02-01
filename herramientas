@@ -1,4 +1,24 @@
 ## Aquí podrás encontrar varias herramientas y scripts que uso.
 
--Virtual Box
--Kali Linux
+Entorno;
+.VirtualBox
+.Kali Linux
+
+Escaneo y Enumeración;
+.Nmap
+.Gobuster
+
+Cracking y Cifrado;
+.John the Ripper
+.ssh2john
+
+Análisis y Utilidades;
+.SQLite3
+.Strings
+.Comando File
+
+Comandos Básicos de Linux;
+.ls - Listar contenido del directorio
+.cat - Mostrar contenido de un archivo
+.cd - Cambiar de directorio (navegar)
+.creación de archivos (vi, echo, mousepad)
